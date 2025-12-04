@@ -1,0 +1,95 @@
+name: Build & Release dbipatcher
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc \
+            make \
+            zstd \
+            libzstd-dev \
+            valgrind \
+            python3-pip \
+            python3-pillow
+          pip3 install zstandard
+
+      - name: Build dbipatcher
+        run: |
+          make clean
+          make all
+          ls -la bin/
+
+      - name: Read config values
+        id: cfg
+        run: |
+          ver=$(grep "^ver=" config.txt | cut -d'=' -f2)
+          echo "ver=$ver" >> $GITHUB_OUTPUT
+
+      - name: Patch DBI files
+        run: |
+          ver="${{ steps.cfg.outputs.ver }}"
+          langs=()
+          for f in translate/lang.*.txt; do
+              base=$(basename "$f")
+              code=$(echo "$base" | sed 's/lang.\(.*\)\.txt/\1/')
+              langs+=("$code")
+          done
+          mkdir -p patched
+          for L in "${langs[@]}"; do
+              BP="translate/blueprints/blueprint.${ver}.txt"
+              NRO="dbi/DBI.${ver}.ru.nro"
+              LANG_FILE="translate/lang.${L}.txt"
+              OUT="patched/DBI.${ver}.${L}.nro"
+
+              ./bin/dbipatcher \
+                --patch "$BP" \
+                --nro "$NRO" \
+                --lang "$LANG_FILE" \
+                --out "$OUT"
+          done
+          ls -la patched/
+
+      - name: Package DBI files
+        id: package
+        run: |
+          ver="${{ steps.cfg.outputs.ver }}"
+          mkdir -p release
+          cp -f patched/DBI.*.nro release/
+          echo "version=${ver}" >> $GITHUB_OUTPUT
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.version }}
+          name: DBI ${{ steps.package.outputs.version }}
+          body: |
+          
+            #### 📁 DBI ${{ steps.package.outputs.version }} Multi-Language
+            
+          files: release/DBI*.nro
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DBI-${{ steps.package.outputs.version }}
+          path: release/*
+          retention-days: 30
