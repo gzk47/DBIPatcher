@@ -1,4 +1,4 @@
-name: Build & Release dbipatcher
+name: Build & Release dbipatcher (ver,lang)
 
 on:
   workflow_dispatch:
@@ -38,17 +38,27 @@ jobs:
         id: cfg
         run: |
           ver=$(grep "^ver=" config.txt | cut -d'=' -f2)
+          lang=$(grep "^lang=" config.txt | cut -d'=' -f2)
           echo "ver=$ver" >> $GITHUB_OUTPUT
+          echo "lang=$lang" >> $GITHUB_OUTPUT
 
       - name: Patch DBI files
         run: |
           ver="${{ steps.cfg.outputs.ver }}"
-          langs=()
-          for f in translate/lang.*.txt; do
-              base=$(basename "$f")
-              code=$(echo "$base" | sed 's/lang.\(.*\)\.txt/\1/')
-              langs+=("$code")
-          done
+          lang="${{ steps.cfg.outputs.lang }}"
+
+          # Determine language list
+          if [ "$lang" = "all" ]; then
+            langs=()
+            for f in translate/lang.*.txt; do
+                base=$(basename "$f")
+                code=$(echo "$base" | sed 's/lang.\(.*\)\.txt/\1/')
+                langs+=("$code")
+            done
+          else
+              langs=("$lang")
+          fi
+
           mkdir -p patched
           for L in "${langs[@]}"; do
               BP="translate/blueprints/blueprint.${ver}.txt"
